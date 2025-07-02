@@ -16,13 +16,15 @@ import { RunnableSequence } from "@langchain/core/runnables";
 export const loadAndSplitChunks = async (
     {
     chunkSize, 
-    chunkOverlap
+    chunkOverlap,
+    filepath
     }:{
     chunkSize: number;
     chunkOverlap: number;
+    filepath: string;
 }) => {
 
-    const loader = new PDFLoader('./MachineLearning-Lecture01.pdf');
+    const loader = new PDFLoader(filepath);
     const docs = await loader.load();
 
     const splitter = new RecursiveCharacterTextSplitter({
@@ -37,7 +39,6 @@ export const initializeVectorStoreWithDocuments = async ({docs}: { docs: Documen
     const embeddings = new OpenAIEmbeddings();
     const vectorstore = new MemoryVectorStore(embeddings);
     await vectorstore.addDocuments(docs);
-    const retriever = vectorstore.asRetriever();
     return vectorstore;
 }
 

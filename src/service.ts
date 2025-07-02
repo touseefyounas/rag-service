@@ -16,14 +16,7 @@ import { createRephraseQuestionChain } from "./functions";
 let finalRetrievalChain: any;
 let isInitialized = false;
 
-const initializeSystem = async () => {
-  if (isInitialized) return;
-
-  const splitDocs = await loadAndSplitChunks({
-    chunkSize: 1536,
-    chunkOverlap: 200,
-  });
-
+export const initializeSystem = async (splitDocs: any) => {
   const vectorStore = await initializeVectorStoreWithDocuments({ docs: splitDocs });
   const retriever = vectorStore.asRetriever();
 
@@ -87,9 +80,19 @@ const initializeSystem = async () => {
   isInitialized = true;
 };
 
+export const isSystemInitialized = () => {
+  return isInitialized;
+};
+
+export const resetSystem = () => {
+  isInitialized = false;
+  finalRetrievalChain = null;
+};
+
 export const finalStream = async (sessionId: number, question: string) => {
-  
-  await initializeSystem();
+  if (!isInitialized) {
+    throw new Error('System not initialized. Please upload a document first.');
+  }
   
   const streamResponse = await finalRetrievalChain.stream(
     { question },

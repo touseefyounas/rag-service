@@ -1,9 +1,10 @@
 import express from 'express';
-import { finalStream } from './service';
+import { finalStream, initializeSystem, isSystemInitialized } from './service';
 import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
 import cors from 'cors';
+import { loadAndSplitChunks } from './functions';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -15,44 +16,81 @@ app.get('/', (req, res) => {
   res.send('Hello, World!');
 });
 
+app.get('/status', (req, res) => {
+  res.json({ 
+    status: 'running',
+    systemInitialized: isSystemInitialized(),
+    message: isSystemInitialized() ? 'System ready for questions' : 'Please upload a document first'
+  });
+});
+
 const upload = multer({
   dest: path.join(__dirname, 'uploads/'), 
   limits: { fileSize: 10 * 1024 * 1024 }, 
 });
 
-app.post('/upload', upload.single('pdf'), (req, res) => {
+import { Request, Response } from 'express';
 
-  const uploadedPath = req.file?.path;
-
+app.post('/upload', upload.single('pdf'), async (req: Request, res: Response) => {
   try {
-    // if (uploadedPath) {
-    //   fs.unlinkSync(uploadedPath);
-    // }
+    const uploadedPath = req.file?.path;
 
-    res.json({ message: 'File processed' });
+    if (!uploadedPath) {
+      res.status(400).json({ error: 'No file uploaded.' });
+      return;
+    }
+
+    const splitDocs = await loadAndSplitChunks({
+      chunkSize: 1536,
+      chunkOverlap: 200,
+      filepath: uploadedPath,
+    });
+
+    await initializeSystem(splitDocs);
+
+    if (fs.existsSync(uploadedPath)) {
+      fs.unlinkSync(uploadedPath);
+    }
+
+    res.json({ message: 'File processed and system initialized successfully' });
   } catch (err) {
-    console.error(err);
-    res.status(500).send('Failed to process PDF');
+    console.error('Error processing PDF:', err);
+    res.status(500).json({ error: 'Failed to process PDF' });
   }
 });
 
 
 app.post('/ask', async (req, res) => {
-  const { sessionId, question } = req.body;
+  try {
+    const { sessionId, question } = req.body;
 
-  const stream = await finalStream(sessionId, question);
-  const reader = stream.getReader();
+    if (!sessionId || !question) {
+      res.status(400).json({ error: 'sessionId and question are required' });
+      return;
+    }
 
-  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-  res.setHeader('Transfer-Encoding', 'chunked');
+    const stream = await finalStream(sessionId, question);
+    const reader = stream.getReader();
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    res.write(Buffer.from(value));
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Transfer-Encoding', 'chunked');
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      res.write(Buffer.from(value));
+    }
+
+    res.end();
+    
+  } catch (err) {
+    console.error('Error in /ask endpoint:', err);
+    if (err instanceof Error && err.message.includes('not initialized')) {
+      res.status(400).json({ error: 'Please upload a document first before asking questions.' });
+    } else {
+      res.status(500).json({ error: 'Internal server error' });
+    }
   }
-
-  res.end();
 });
 
 app.listen(PORT, () => {
