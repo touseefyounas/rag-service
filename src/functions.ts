@@ -12,6 +12,14 @@ import { MessagesPlaceholder } from "@langchain/core/prompts";
 import { Document } from "@langchain/core/documents";
 import { RunnableSequence } from "@langchain/core/runnables";
 
+import { Index } from "@upstash/vector";
+import { UpstashVectorStore } from '@langchain/community/vectorstores/upstash';
+
+const upstashIndex = new Index({
+    url: process.env.UPSTASH_VECTOR_REST_URL,
+    token: process.env.UPSTASH_VECTOR_REST_TOKEN,
+});
+
 
 export const loadAndSplitChunks = async (
     {
@@ -35,15 +43,42 @@ export const loadAndSplitChunks = async (
     return splitDocs;
 }
 
-export const initializeVectorStoreWithDocuments = async ({docs}: { docs: Document[] }) => {
+export const initializeVectorStoreWithDocuments = async ({docs, namespace='default'}: { docs: Document[], namespace?: string }) => {
     const embeddings = new OpenAIEmbeddings();
-    const vectorstore = new MemoryVectorStore(embeddings);
+
+    // const vectorstore = new MemoryVectorStore(embeddings);
+
+    const vectorstore = new UpstashVectorStore(embeddings, {
+        index: upstashIndex,
+        namespace: namespace,
+    });
     await vectorstore.addDocuments(docs);
+    console.log(`Added ${docs.length} documents to Upstash Vector (namespace: ${namespace})`);
     return vectorstore;
+}
+
+export const checkDocumentExists = async (namespace: string = 'default') => {
+    try {
+        const stats = await upstashIndex.info();
+        return stats;
+    } catch (error) {
+        console.error("Error checking document existence:", error);
+        return false;
+    }
+}
+
+export const clearDocuments = async (namespace: string = 'default'): Promise<void> => {
+    try {
+        await upstashIndex.reset({ namespace });
+        console.log(`Cleared all documents in namespace: ${namespace}`);
+    } catch (error) {
+        console.error("Error clearing documents:", error);
+    }
 }
 
 export const createDocumentRetrievalChain = (retriever: any) => {
     const convertDocsToString = (documents: Document[]): string => {
+        console.log(`📄 Retrieved ${documents.length} documents`);
         return documents.map((document) => `<doc>\n${document.pageContent}\n</doc>`).join("\n");
     }
 
@@ -51,7 +86,7 @@ export const createDocumentRetrievalChain = (retriever: any) => {
         (input) => input.standalone_question,
         retriever,
         convertDocsToString,
-    ])
+    ]);
 
     return documentRetrievalChain;
 }
@@ -64,10 +99,25 @@ export const createRephraseQuestionChain = () => {
     new MessagesPlaceholder("history"),
     ["human", "Rephrase the following question as a standalone question:\n{question}"],
   ]);
+  
   const rephraseQuestionChain = RunnableSequence.from([
     rephraseQuestionChainPrompt,
     new ChatOpenAI({ temperature: 0.1, modelName: "gpt-4" }),
     new StringOutputParser(),
   ]);
-  return rephraseQuestionChain;
+
+  // Add logging wrapper to see the rephrased question
+  const loggedRephraseChain = RunnableSequence.from([
+    (input) => {
+      console.log("Original question:", input.question);
+      return input;
+    },
+    rephraseQuestionChain,
+    (output) => {
+      console.log("Rephrased question:", output);
+      return output;
+    }
+  ]);
+
+  return loggedRephraseChain;
 }

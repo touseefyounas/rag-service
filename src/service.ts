@@ -8,17 +8,23 @@ import { HttpResponseOutputParser } from "langchain/output_parsers";
 import { RunnableWithMessageHistory } from "@langchain/core/runnables"; 
 import { ChatMessageHistory } from "langchain/stores/message/in_memory";
 
-import { loadAndSplitChunks } from "./functions";
-import { initializeVectorStoreWithDocuments } from "./functions";
+import { clearDocuments, initializeVectorStoreWithDocuments, checkDocumentExists } from "./functions";
 import { createDocumentRetrievalChain } from "./functions";
 import { createRephraseQuestionChain } from "./functions";
 
+
 let finalRetrievalChain: any;
 let isInitialized = false;
+let currentNamespace = 'default';
 
-export const initializeSystem = async (splitDocs: any) => {
-  const vectorStore = await initializeVectorStoreWithDocuments({ docs: splitDocs });
-  const retriever = vectorStore.asRetriever();
+export const initializeSystem = async (splitDocs: any, namespace: string = 'default') => {
+  console.log(`Processing ${splitDocs.length} document chunks`);
+  
+  const vectorStore = await initializeVectorStoreWithDocuments({ docs: splitDocs, namespace });
+  const retriever = vectorStore.asRetriever({
+    k:4,
+    searchType: "similarity",
+  });
 
   const documentRetrievalChain = createDocumentRetrievalChain(retriever);
   const rephraseQuestionChain = createRephraseQuestionChain();
@@ -61,12 +67,9 @@ export const initializeSystem = async (splitDocs: any) => {
 
   const messageHistories: { [key: number]: ChatMessageHistory } = {};
 
-  const getMessageHistoryForSession = (sessionId: number) => {
-    if (messageHistories[sessionId] !== undefined) {
-      return messageHistories[sessionId];
-    } 
-    const newChatSessionHistory = new ChatMessageHistory();
-    messageHistories[sessionId] = newChatSessionHistory;
+  const getMessageHistoryForSession = (sessionId: number): ChatMessageHistory => {
+    const newChatSessionHistory = messageHistories[sessionId] || new ChatMessageHistory();
+    console.log(`Chat history for session ${sessionId}: `, newChatSessionHistory);
     return newChatSessionHistory;
   };
 
@@ -77,6 +80,7 @@ export const initializeSystem = async (splitDocs: any) => {
     historyMessagesKey: "history",
   }).pipe(httpResponseOutputParser);
 
+  currentNamespace = namespace;
   isInitialized = true;
 };
 
@@ -84,7 +88,17 @@ export const isSystemInitialized = () => {
   return isInitialized;
 };
 
-export const resetSystem = () => {
+export const documentStatus = async (namespace: string = 'default') => {
+  try {
+    return await checkDocumentExists(namespace);
+  } catch (error) {
+    console.error("Error checking document status:", error);
+    return false;
+  }
+}
+
+export const resetSystem = async (namespace: string ='default') => {
+  await clearDocuments(namespace)
   isInitialized = false;
   finalRetrievalChain = null;
 };
@@ -94,10 +108,16 @@ export const finalStream = async (sessionId: number, question: string) => {
     throw new Error('System not initialized. Please upload a document first.');
   }
   
+  console.log(`Starting RAG query for session ${sessionId}`);
+  
   const streamResponse = await finalRetrievalChain.stream(
     { question },
     { configurable: { sessionId } }
   );
 
   return streamResponse;
+};
+
+export const getCurrentNamespace = () => {
+  return currentNamespace;
 };

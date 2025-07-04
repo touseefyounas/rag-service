@@ -1,10 +1,14 @@
 import express from 'express';
-import { finalStream, initializeSystem, isSystemInitialized } from './service';
+import { Request, Response } from 'express';
+import cors from 'cors';
+
 import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
-import cors from 'cors';
+
 import { loadAndSplitChunks } from './functions';
+import { finalStream, initializeSystem, isSystemInitialized, resetSystem, documentStatus } from './service';
+
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -29,8 +33,6 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 }, 
 });
 
-import { Request, Response } from 'express';
-
 app.post('/upload', upload.single('pdf'), async (req: Request, res: Response) => {
   try {
     const uploadedPath = req.file?.path;
@@ -46,7 +48,7 @@ app.post('/upload', upload.single('pdf'), async (req: Request, res: Response) =>
       filepath: uploadedPath,
     });
 
-    await initializeSystem(splitDocs);
+    await initializeSystem(splitDocs, 'lecture');
 
     if (fs.existsSync(uploadedPath)) {
       fs.unlinkSync(uploadedPath);
@@ -59,6 +61,25 @@ app.post('/upload', upload.single('pdf'), async (req: Request, res: Response) =>
   }
 });
 
+app.get('/document/status', async (req, res) => {
+  try {
+    const stats = await documentStatus('lecture');
+    res.json(stats);
+  } catch (err) {
+    console.error('Error fetching document status:', err);
+    res.status(500).json({ error: 'Failed to fetch document status' });
+  }
+});
+
+app.delete('/reset', async (req, res) => {
+  try {
+    await resetSystem('lecture');
+    res.json({ message: 'System reset successfully' });
+  } catch (err) {
+    console.error('Error resetting system:', err);
+    res.status(500).json({ error: 'Failed to reset system' });
+  }
+});
 
 app.post('/ask', async (req, res) => {
   try {
@@ -82,7 +103,7 @@ app.post('/ask', async (req, res) => {
     }
 
     res.end();
-    
+
   } catch (err) {
     console.error('Error in /ask endpoint:', err);
     if (err instanceof Error && err.message.includes('not initialized')) {
