@@ -12,14 +12,7 @@ import { MessagesPlaceholder } from "@langchain/core/prompts";
 import { Document } from "@langchain/core/documents";
 import { RunnableSequence } from "@langchain/core/runnables";
 
-import { Index } from "@upstash/vector";
-import { UpstashVectorStore } from '@langchain/community/vectorstores/upstash';
-
-const upstashIndex = new Index({
-    url: process.env.UPSTASH_VECTOR_REST_URL,
-    token: process.env.UPSTASH_VECTOR_REST_TOKEN,
-});
-
+import { getOrCreateVectorStore, upstashIndex } from "./vectorStore";
 
 export const loadAndSplitChunks = async (
     {
@@ -43,18 +36,10 @@ export const loadAndSplitChunks = async (
     return splitDocs;
 }
 
-export const initializeVectorStoreWithDocuments = async ({docs, namespace='default'}: { docs: Document[], namespace?: string }) => {
-    const embeddings = new OpenAIEmbeddings();
-
-    // const vectorstore = new MemoryVectorStore(embeddings);
-
-    const vectorstore = new UpstashVectorStore(embeddings, {
-        index: upstashIndex,
-        namespace: namespace,
-    });
-    await vectorstore.addDocuments(docs);
+export const addDocumentsToVectorStore = async (docs: Document[], namespace: string) => {
+    const vectorStore = await getOrCreateVectorStore(namespace);
+    await vectorStore.addDocuments(docs);
     console.log(`Added ${docs.length} documents to Upstash Vector (namespace: ${namespace})`);
-    return vectorstore;
 }
 
 export const checkDocumentExists = async (namespace: string = 'default') => {

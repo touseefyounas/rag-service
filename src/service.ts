@@ -8,19 +8,25 @@ import { HttpResponseOutputParser } from "langchain/output_parsers";
 import { RunnableWithMessageHistory } from "@langchain/core/runnables"; 
 import { ChatMessageHistory } from "langchain/stores/message/in_memory";
 
-import { clearDocuments, initializeVectorStoreWithDocuments, checkDocumentExists } from "./functions";
-import { createDocumentRetrievalChain } from "./functions";
-import { createRephraseQuestionChain } from "./functions";
+import { 
+  clearDocuments, 
+  checkDocumentExists, 
+  createDocumentRetrievalChain, 
+  createRephraseQuestionChain 
+} from "./functions";
+
+import { getOrCreateVectorStore } from "./vectorStore";
+
+import { getMemoryInstance } from "./Config/redis";
 
 
 let finalRetrievalChain: any;
 let isInitialized = false;
-let currentNamespace = 'default';
+let currentNamespace: string | null = null;
 
-export const initializeSystem = async (splitDocs: any, namespace: string = 'default') => {
-  console.log(`Processing ${splitDocs.length} document chunks`);
+export const initializeSystem = async ( namespace: string) => {
   
-  const vectorStore = await initializeVectorStoreWithDocuments({ docs: splitDocs, namespace });
+  const vectorStore = await getOrCreateVectorStore(namespace);
   const retriever = vectorStore.asRetriever({
     k:4,
     searchType: "similarity",
@@ -33,7 +39,7 @@ export const initializeSystem = async (splitDocs: any, namespace: string = 'defa
     expert at interpreting and answering questions based on provided sources.
     Using the below provided context and chat history, 
     answer the user's question to the best of your ability
-    using only the resources provided. Be verbose!
+    using only the resources provided.
 
     <context>
     {context}
@@ -65,13 +71,9 @@ export const initializeSystem = async (splitDocs: any, namespace: string = 'defa
     contentType: "text/plain"
   });
 
-  const messageHistories: { [key: number]: ChatMessageHistory } = {};
-
-  const getMessageHistoryForSession = (sessionId: number): ChatMessageHistory => {
-    const newChatSessionHistory = messageHistories[sessionId] || new ChatMessageHistory();
-    console.log(`Chat history for session ${sessionId}: `, newChatSessionHistory);
-    return newChatSessionHistory;
-  };
+  const getMessageHistoryForSession = (sessionId: string) => {
+  return getMemoryInstance(sessionId).chatHistory;
+};
 
   finalRetrievalChain = new RunnableWithMessageHistory({
     runnable: conversationalRetrievalChain,
@@ -88,7 +90,7 @@ export const isSystemInitialized = () => {
   return isInitialized;
 };
 
-export const documentStatus = async (namespace: string = 'default') => {
+export const documentStatus = async (namespace: string) => {
   try {
     return await checkDocumentExists(namespace);
   } catch (error) {
@@ -97,13 +99,11 @@ export const documentStatus = async (namespace: string = 'default') => {
   }
 }
 
-export const resetSystem = async (namespace: string ='default') => {
+export const resetDocuments = async (namespace: string) => {
   await clearDocuments(namespace)
-  isInitialized = false;
-  finalRetrievalChain = null;
 };
 
-export const finalStream = async (sessionId: number, question: string) => {
+export const finalStream = async (sessionId: string, question: string) => {
   if (!isInitialized) {
     throw new Error('System not initialized. Please upload a document first.');
   }
