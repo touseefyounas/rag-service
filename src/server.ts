@@ -10,7 +10,7 @@ import multer from 'multer';
 
 import { Redis } from '@upstash/redis';
 
-import { addDocumentsToVectorStore, loadAndSplitChunks } from './functions';
+import { addDocumentsToVectorStore, loadAndSplitChunks } from './RAG/ragFunctions';
 import { finalStream, initializeSystem, isSystemInitialized, resetDocuments, documentStatus } from './service';
 import { getOrCreateVectorStore } from './vectorStore';
 import { get } from 'http';
@@ -90,9 +90,8 @@ const upload = multer({
 });
 
 app.post('/upload', upload.single('pdf'), async (req: Request, res: Response) => {
-
-  const { sessionId } = req.body;
-
+  
+  const sessionId = req.headers['x-session-id'] as string;
   if (!sessionId) {
     res.status(400).json({ error: 'Session ID is required' });
     return;
@@ -100,7 +99,6 @@ app.post('/upload', upload.single('pdf'), async (req: Request, res: Response) =>
 
   try {
     const uploadedPath = req.file?.path;
-
     if (!uploadedPath) {
       res.status(400).json({ error: 'No file uploaded.' });
       return;

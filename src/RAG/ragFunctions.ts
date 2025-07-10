@@ -12,7 +12,7 @@ import { MessagesPlaceholder } from "@langchain/core/prompts";
 import { Document } from "@langchain/core/documents";
 import { RunnableSequence } from "@langchain/core/runnables";
 
-import { getOrCreateVectorStore, upstashIndex } from "./vectorStore";
+import { getOrCreateVectorStore, upstashIndex } from "../vectorStore";
 
 export const loadAndSplitChunks = async (
     {
