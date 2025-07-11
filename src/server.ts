@@ -12,9 +12,8 @@ import { Redis } from '@upstash/redis';
 
 import { addDocumentsToVectorStore, loadAndSplitChunks } from './RAG/ragFunctions';
 import { finalStream, initializeSystem, isSystemInitialized, resetDocuments, documentStatus } from './service';
-import { getOrCreateVectorStore } from './vectorStore';
+import { getMemoryInstance } from './Config/redis';
 import { get } from 'http';
-
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -147,14 +146,14 @@ app.delete('/reset/:sessionId', async (req, res) => {
 
 app.post('/ask', async (req, res) => {
   try {
-    const { sessionId, question } = req.body;
+    const { sessionId, question, mode } = req.body;
 
     if (!sessionId || !question) {
       res.status(400).json({ error: 'sessionId and question are required' });
       return;
     }
 
-    const stream = await finalStream(sessionId, question);
+    const stream = await finalStream(sessionId, question, mode);
     const reader = stream.getReader();
 
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
@@ -177,6 +176,25 @@ app.post('/ask', async (req, res) => {
     }
   }
 });
+
+app.get('/history/:sessionId', async (req, res) => {
+  const { sessionId } = req.params;
+  const memory = getMemoryInstance(sessionId);
+  if (!memory) {
+    res.status(404).json({ error: 'Session not found' });
+    
+  }
+  try{
+    const chatHistory = await memory.chatHistory.getMessages();
+    res.status(200).json(chatHistory);
+  } catch (err) {
+    console.error('Error fetching chat history:', err);
+    res.status(500).json({ error: 'Failed to fetch chat history' });
+  }
+});
+  
+
+
 
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);

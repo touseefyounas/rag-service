@@ -1,12 +1,11 @@
 import { ChatPromptTemplate, MessagesPlaceholder } from "@langchain/core/prompts";
-import { RunnablePassthrough, RunnableSequence, RunnableLambda } from "@langchain/core/runnables";
+import { RunnableLambda } from "@langchain/core/runnables";
 import { ChatOpenAI } from "@langchain/openai";
+import { StringOutputParser } from "@langchain/core/output_parsers";
 import { SerpAPI } from "@langchain/community/tools/serpapi";
 
-import { WEB_SEARCH_ANSWER_CHAIN_SYSTEM_TEMPLATE } from "../prompts";
 
-// Function to create search query generation chain
-const createSearchQueryChain = () => {
+export const createSearchQueryChain = () => {
   const searchQueryPrompt = ChatPromptTemplate.fromMessages([
     [
       "system",
@@ -29,21 +28,27 @@ const createSearchQueryChain = () => {
       Return only the search query, nothing else.`
     ],
     new MessagesPlaceholder("history"),
-    ["human", "{input}"]
+    ["human", "{question}"]
   ]);
 
-  return searchQueryPrompt.pipe(new ChatOpenAI({ modelName: "gpt-4o-mini", temperature: 0 }));
+  return searchQueryPrompt.pipe(new ChatOpenAI({ modelName: "gpt-4o-mini", temperature: 0 })).pipe(new StringOutputParser());
 };
 
-// Function to create web search execution chain
-const createWebSearchChain = () => {
+export const createWebSearchChain = () => {
   const serpAPI = new SerpAPI();
 
   return RunnableLambda.from(async (input: { search_query: string }) => {
     try {
-      const searchResults = await serpAPI.invoke({ query: input.search_query });
+      console.log("🔍 WebSearchChain received input:", input);
+      console.log("🔍 Search query value:", input.search_query);
+      console.log("🔍 Search query type:", typeof input.search_query);
       
-      // Format search results for better processing
+      if (!input.search_query || input.search_query.trim() === '') {
+        throw new Error('Empty search query received');
+      }
+      
+      const searchResults = await serpAPI.invoke(input.search_query );
+      
       let formattedResults = "";
       if (typeof searchResults === 'string') {
         formattedResults = searchResults;
@@ -70,41 +75,3 @@ const createWebSearchChain = () => {
   });
 };
 
-// Main web search chain function
-export const getWebSearchChain = async () => {
-  const searchQueryChain = createSearchQueryChain();
-  const webSearchChain = createWebSearchChain();
-
-  const answerGenerationChainPrompt = ChatPromptTemplate.fromMessages([
-    ["system", WEB_SEARCH_ANSWER_CHAIN_SYSTEM_TEMPLATE],
-    new MessagesPlaceholder("history"),
-    [
-      "human", 
-      `Based on the search results below, please answer this question: {input}
-
-      Search Query Used: {search_query_used}
-      Search Results: {search_results}
-      
-      Please provide a comprehensive answer based on these search results.`
-    ]
-  ]);
-
-  return RunnableSequence.from([
-    // Step 1: Generate optimized search query
-    RunnablePassthrough.assign({
-      search_query: searchQueryChain,
-    }),
-    // Step 2: Execute web search
-    RunnablePassthrough.assign({
-      search_data: webSearchChain,
-    }),
-    // Step 3: Extract search results for the prompt
-    RunnablePassthrough.assign({
-      search_results: RunnableLambda.from((input: any) => input.search_data.search_results),
-      search_query_used: RunnableLambda.from((input: any) => input.search_data.search_query_used),
-    }),
-    // Step 4: Generate final answer
-    answerGenerationChainPrompt,
-    new ChatOpenAI({ modelName: "gpt-4" }),
-  ]);
-};
